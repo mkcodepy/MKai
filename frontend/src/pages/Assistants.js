@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bot, Plus, Pencil, Trash2, FlaskConical, BookOpen } from "lucide-react";
+import { Bot, Plus, Pencil, Trash2, FlaskConical, BookOpen, Copy, MessagesSquare } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { listAssistants, deleteAssistant } from "@/lib/api";
+import { listAssistants, deleteAssistant, duplicateAssistant } from "@/lib/api";
 import { toast } from "sonner";
 
 const PROVIDER_LABEL = { openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini" };
@@ -22,6 +22,11 @@ export default function Assistants() {
   const load = () => listAssistants().then((d) => { setItems(d); setLoading(false); }).catch(() => setLoading(false));
   useEffect(() => { load(); }, []);
 
+  const onDuplicate = async (id) => {
+    try { await duplicateAssistant(id); toast.success("Assistente duplicado (com base de conhecimento)"); load(); }
+    catch { toast.error("Erro ao duplicar"); }
+  };
+
   const onDelete = async (id) => {
     try { await deleteAssistant(id); toast.success("Assistente excluído"); load(); }
     catch { toast.error("Erro ao excluir"); }
@@ -32,7 +37,7 @@ export default function Assistants() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Assistentes</h1>
-          <p className="text-sm text-muted-foreground">Configure a personalidade, regras e modelo de cada assistente</p>
+          <p className="text-sm text-muted-foreground">Crie por template ou com IA; configure identidade, habilidades, estilo, regras, handoff e conhecimento</p>
         </div>
         <Button data-testid="assistants-new-button" onClick={() => navigate("/assistentes/novo")}>
           <Plus className="mr-2 h-4 w-4" /> Novo Assistente
@@ -67,7 +72,9 @@ export default function Assistants() {
                     <Badge variant="outline" className="rounded-full">{PROVIDER_LABEL[a.provider] || a.provider}</Badge>
                     <Badge variant="outline" className="rounded-full font-mono text-[11px]">{a.model}</Badge>
                     <Badge variant="outline" className="rounded-full"><BookOpen className="mr-1 h-3 w-3" />{a.knowledge_count} fontes</Badge>
+                    <Badge variant="outline" className="rounded-full"><MessagesSquare className="mr-1 h-3 w-3" />{a.conversation_count ?? 0} conversas</Badge>
                   </div>
+                  {(a.skills?.length > 0) && <div className="flex flex-wrap gap-1">{a.skills.slice(0, 3).map((s, i) => <span key={i} className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">{s}</span>)}{a.skills.length > 3 && <span className="text-[10px] text-muted-foreground">+{a.skills.length - 3}</span>}</div>}
                   <div className="mt-auto flex items-center gap-2">
                     <Button size="sm" variant="secondary" className="flex-1" data-testid="assistant-edit-button" onClick={() => navigate(`/assistentes/${a.id}`)}>
                       <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editar
@@ -75,6 +82,7 @@ export default function Assistants() {
                     <Button size="sm" variant="ghost" data-testid="assistant-test-button" onClick={() => navigate(`/playground?assistant=${a.id}`)}>
                       <FlaskConical className="mr-1.5 h-3.5 w-3.5" /> Testar
                     </Button>
+                    <Button size="icon" variant="ghost" title="Duplicar" data-testid="assistant-duplicate-button" onClick={() => onDuplicate(a.id)}><Copy className="h-4 w-4" /></Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button size="icon" variant="ghost" className="text-destructive" data-testid="assistant-delete-button"><Trash2 className="h-4 w-4" /></Button>

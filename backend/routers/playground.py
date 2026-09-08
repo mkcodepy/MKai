@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from database import assistants, knowledge_chunks
 from models import PlaygroundMessage
-from ai_core import stream_reply, parse_handoff
+from ai_core import stream_reply
 
 router = APIRouter(prefix="/api/playground", tags=["playground"])
 
@@ -16,24 +16,19 @@ async def playground_stream(payload: PlaygroundMessage):
     cfg = await assistants.find_one({"id": payload.assistant_id}, {"_id": 0})
     if not cfg:
         raise HTTPException(404, "Assistente não encontrado")
-    chunks = [c["text"] for c in await knowledge_chunks.find(
-        {"assistant_id": payload.assistant_id}, {"_id": 0, "text": 1}).to_list(2000)]
+    chunks = await knowledge_chunks.find({"assistant_id": payload.assistant_id},
+                                         {"_id": 0, "text": 1, "source_title": 1, "source_id": 1}).to_list(5000)
     history = _SESSIONS.setdefault(payload.session_id, [])
+    prior = list(history)
     history.append({"role": "customer", "text": payload.message})
 
     async def gen():
-        buffer = []
         try:
-            async for token in stream_reply(cfg, chunks, history[:-1], payload.message, payload.session_id):
-                buffer.append(token)
-                # não vazar a etiqueta de handoff no stream
-                safe = token.replace("[", "").replace("]", "") if "HANDOFF" in "".join(buffer[-3:]) else token
-                yield f"data: {json.dumps({'delta': token})}\n\n"
-            full = "".join(buffer)
-            clean, handoff = parse_handoff(full)
-            history.append({"role": "assistant", "text": clean})
-            yield f"data: {json.dumps({'done': True, 'handoff': handoff, 'clean': clean})}\n\n"
-        except Exception as e:
+            async for ev in stream_reply(cfg, chunks, prior, payload.message, payload.session_id):
+                if ev.get("done"):
+                    history.append({"role": "assistant", "text": ev["clean"]})
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:  # noqa: BLE001
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",

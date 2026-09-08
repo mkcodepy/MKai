@@ -6,7 +6,6 @@ import requests
 import json
 import time
 import sys
-from datetime import datetime
 
 BASE_URL = "https://customer-ai-platform-3.preview.emergentagent.com/api"
 
@@ -77,14 +76,14 @@ class BackendTester:
             
             if success:
                 self.tests_passed += 1
-                self.log(f"✅ PASSED", Colors.GREEN)
+                self.log("✅ PASSED", Colors.GREEN)
                 self.log(f"   Status: {response.status_code} (expected {expected_status})", Colors.GREEN)
                 if validation_msg:
                     self.log(f"   {validation_msg}", Colors.GREEN)
             else:
                 self.tests_failed += 1
                 self.failed_tests.append(name)
-                self.log(f"❌ FAILED", Colors.RED)
+                self.log("❌ FAILED", Colors.RED)
                 if not status_ok:
                     self.log(f"   Status: {response.status_code} (expected {expected_status})", Colors.RED)
                 if not validation_ok:
@@ -138,7 +137,7 @@ class BackendTester:
                 self.assistant_id = nova_assistant["id"]
                 kb_count = nova_assistant.get("knowledge_count", 0)
                 if kb_count == 3:
-                    self.log(f"   ✅ Seed assistant has knowledge_count=3", Colors.GREEN)
+                    self.log("   ✅ Seed assistant has knowledge_count=3", Colors.GREEN)
                 else:
                     self.log(f"   ⚠️  Seed assistant has knowledge_count={kb_count} (expected 3)", Colors.YELLOW)
         
@@ -258,7 +257,7 @@ class BackendTester:
                 "POST", "conversations", 200,
                 data=conv_data,
                 validate_fn=lambda r: (
-                    "id" in r and r.get("status") == "bot" and r.get("ai_paused") == False,
+                    "id" in r and r.get("status") == "bot" and not r.get("ai_paused"),
                     f"Created conversation ID: {r.get('id')}, status: {r.get('status')}"
                 )
             )
@@ -288,7 +287,7 @@ class BackendTester:
                 has_30_days = "30" in ai_text
                 has_10_days = "10" in ai_text
                 if has_30_days and has_10_days:
-                    self.log(f"   ✅ AI response is faithful to KB (mentions 30 days and 10 days)", Colors.GREEN)
+                    self.log("   ✅ AI response is faithful to KB (mentions 30 days and 10 days)", Colors.GREEN)
                 else:
                     self.log(f"   ⚠️  AI response may not be fully faithful to KB (30 days: {has_30_days}, 10 days: {has_10_days})", Colors.YELLOW)
         
@@ -320,7 +319,7 @@ class BackendTester:
                     timeout=30,
                     validate_fn=lambda r: (
                         r.get("assistant_message") is not None and 
-                        r.get("assistant_message", {}).get("handoff") == True,
+                        r.get("assistant_message", {}).get("handoff"),
                         f"Handoff detected: {r.get('assistant_message', {}).get('handoff')}"
                     )
                 )
@@ -332,7 +331,7 @@ class BackendTester:
                         "Verify conversation status after handoff",
                         "GET", f"conversations/{handoff_conv_id}", 200,
                         validate_fn=lambda r: (
-                            r.get("status") == "human" and r.get("ai_paused") == True and r.get("handoff") == True,
+                            r.get("status") == "human" and r.get("ai_paused") and r.get("handoff"),
                             f"Status: {r.get('status')}, AI paused: {r.get('ai_paused')}, Handoff: {r.get('handoff')}"
                         )
                     )
@@ -345,7 +344,7 @@ class BackendTester:
                 "PATCH", f"conversations/{self.conversation_id}/status", 200,
                 data={"ai_paused": True},
                 validate_fn=lambda r: (
-                    r.get("ai_paused") == True,
+                    r.get("ai_paused"),
                     f"AI paused: {r.get('ai_paused')}"
                 )
             )
@@ -368,7 +367,7 @@ class BackendTester:
                 "PATCH", f"conversations/{self.conversation_id}/status", 200,
                 data={"ai_paused": False},
                 validate_fn=lambda r: (
-                    r.get("ai_paused") == False and r.get("status") == "bot",
+                    not r.get("ai_paused") and r.get("status") == "bot",
                     f"AI paused: {r.get('ai_paused')}, Status: {r.get('status')}"
                 )
             )
@@ -440,7 +439,7 @@ class BackendTester:
                     else:
                         self.tests_failed += 1
                         self.failed_tests.append("Test playground streaming (SSE)")
-                        self.log(f"❌ FAILED - No SSE chunks received", Colors.RED)
+                        self.log("❌ FAILED - No SSE chunks received", Colors.RED)
                 else:
                     self.tests_failed += 1
                     self.failed_tests.append("Test playground streaming (SSE)")
@@ -481,45 +480,505 @@ class BackendTester:
             )
         )
         
-        # 21. Test dashboard stats
-        self.test(
-            "Get dashboard statistics",
-            "GET", "dashboard/stats", 200,
+        # 21. Test assistant templates
+        success, templates_data = self.test(
+            "Get assistant templates",
+            "GET", "assistants/templates", 200,
             validate_fn=lambda r: (
-                all(k in r for k in ["assistants", "conversations", "messages", "knowledge_sources", "handoff_rate"]),
-                f"Stats: {r.get('assistants')} assistants, {r.get('conversations')} conversations, {r.get('messages')} messages, handoff_rate: {r.get('handoff_rate')}%"
+                isinstance(r, list) and len(r) == 6 and 
+                any(t.get("key") == "ecommerce" for t in r),
+                f"Found {len(r)} templates, ecommerce present: {any(t.get('key') == 'ecommerce' for t in r)}"
             )
         )
         
-        # 22. Delete knowledge source
+        # 22. Test specific template detail
+        self.test(
+            "Get ecommerce template detail",
+            "GET", "assistants/templates/ecommerce", 200,
+            validate_fn=lambda r: (
+                "config" in r and "suggested_knowledge" in r and 
+                r.get("config", {}).get("name") == "Nova — Loja",
+                f"Template config name: {r.get('config', {}).get('name')}, has suggested_knowledge: {'suggested_knowledge' in r}"
+            )
+        )
+        
+        # 23. Test generate assistant config with AI (short description should fail)
+        self.test(
+            "Generate assistant config with short description (should fail)",
+            "POST", "assistants/generate", 400,
+            data={"description": "loja", "provider": "openai"},
+            validate_fn=lambda r: (
+                True,  # Just checking 400 status
+                "Short description rejected"
+            )
+        )
+        
+        # 24. Test generate assistant config with AI (valid description)
+        self.log("\n⏳ Testing AI assistant generation (this may take 10-40 seconds)...", Colors.YELLOW)
+        generate_data = {
+            "description": "Assistente para uma clínica veterinária que atende cães e gatos, oferece consultas, vacinas, cirurgias e banho e tosa. Horário de atendimento: segunda a sexta das 8h às 18h.",
+            "provider": "openai"
+        }
+        success, generated_config = self.test(
+            "Generate assistant config with AI",
+            "POST", "assistants/generate", 200,
+            data=generate_data,
+            timeout=60,
+            validate_fn=lambda r: (
+                all(k in r for k in ["name", "mission", "skills", "few_shot_examples", "suggested_knowledge"]) and
+                isinstance(r.get("skills"), list) and len(r.get("skills", [])) >= 5 and
+                isinstance(r.get("few_shot_examples"), list) and len(r.get("few_shot_examples", [])) >= 1,
+                f"Generated config with name: {r.get('name')}, {len(r.get('skills', []))} skills, {len(r.get('few_shot_examples', []))} examples"
+            )
+        )
+        
+        # 25. Test compiled prompt endpoint
+        if self.assistant_id:
+            self.test(
+                "Get compiled prompt for assistant",
+                "GET", f"assistants/{self.assistant_id}/prompt?sample=Olá, qual o horário?", 200,
+                validate_fn=lambda r: (
+                    "prompt" in r and "sources" in r and "# IDENTIDADE E MISSÃO" in r.get("prompt", "") and
+                    "[[META:" in r.get("prompt", ""),
+                    f"Prompt length: {r.get('chars')} chars, approx {r.get('approx_tokens')} tokens, {len(r.get('sources', []))} sources"
+                )
+            )
+        
+        # 26. Test evaluate endpoint
+        if self.assistant_id:
+            self.log("\n⏳ Testing assistant evaluation (this may take 20-60 seconds)...", Colors.YELLOW)
+            eval_data = {
+                "questions": [
+                    "Vocês parcelam em quantas vezes?",
+                    "Qual o prazo de entrega?"
+                ]
+            }
+            success, eval_response = self.test(
+                "Evaluate assistant with test questions",
+                "POST", f"assistants/{self.assistant_id}/evaluate", 200,
+                data=eval_data,
+                timeout=90,
+                validate_fn=lambda r: (
+                    "summary" in r and "results" in r and 
+                    r.get("summary", {}).get("total") == 2 and
+                    all("meta" in res for res in r.get("results", []) if "error" not in res),
+                    f"Evaluated {r.get('summary', {}).get('total')} questions, avg confidence: {r.get('summary', {}).get('avg_confidence')}, kb_used_rate: {r.get('summary', {}).get('kb_used_rate')}%"
+                )
+            )
+        
+        # 27. Test duplicate assistant
+        if test_assistant_id:
+            success, dup_response = self.test(
+                "Duplicate assistant",
+                "POST", f"assistants/{test_assistant_id}/duplicate?with_knowledge=true", 200,
+                validate_fn=lambda r: (
+                    "id" in r and r.get("id") != test_assistant_id and 
+                    "(cópia)" in r.get("name", ""),
+                    f"Duplicated assistant ID: {r.get('id')}, name: {r.get('name')}"
+                )
+            )
+            
+            if success:
+                dup_assistant_id = dup_response.get("id")
+                # Clean up duplicate
+                self.test(
+                    "Delete duplicated assistant",
+                    "DELETE", f"assistants/{dup_assistant_id}", 200
+                )
+        
+        # 28. Test assistant stats
+        if self.assistant_id:
+            self.test(
+                "Get assistant statistics",
+                "GET", f"assistants/{self.assistant_id}/stats", 200,
+                validate_fn=lambda r: (
+                    all(k in r for k in ["conversations", "handoffs", "resolved", "ai_messages", "handoff_rate"]),
+                    f"Stats: {r.get('conversations')} conversations, {r.get('handoffs')} handoffs, {r.get('handoff_rate')}% handoff rate"
+                )
+            )
+        
+        # 29. Test knowledge QnA type (should create 1 chunk per Q&A pair)
+        if self.assistant_id:
+            qna_knowledge = {
+                "assistant_id": self.assistant_id,
+                "title": "FAQ Teste",
+                "content": "P: Qual o horário de atendimento?\nR: Atendemos de segunda a sexta das 9h às 18h.\n\nP: Aceitam cartão?\nR: Sim, aceitamos todas as bandeiras.",
+                "type": "qna"
+            }
+            success, qna_response = self.test(
+                "Add QnA knowledge source (should create 1 chunk per pair)",
+                "POST", "knowledge/text", 200,
+                data=qna_knowledge,
+                validate_fn=lambda r: (
+                    "id" in r and r.get("type") == "qna" and r.get("chunk_count") == 2,
+                    f"QnA indexed with {r.get('chunk_count')} chunks (expected 2 for 2 Q&A pairs)"
+                )
+            )
+            
+            if success:
+                qna_source_id = qna_response.get("id")
+                
+                # 30. Test knowledge search with full_context
+                search_data = {
+                    "assistant_id": self.assistant_id,
+                    "query": "vocês parcelam?",
+                    "top_k": 5
+                }
+                self.test(
+                    "Search knowledge base",
+                    "POST", "knowledge/search", 200,
+                    data=search_data,
+                    validate_fn=lambda r: (
+                        "results" in r and "total_chunks" in r and "full_context" in r and
+                        isinstance(r.get("results"), list),
+                        f"Search returned {len(r.get('results', []))} results, total_chunks: {r.get('total_chunks')}, full_context: {r.get('full_context')}"
+                    )
+                )
+                
+                # 31. Test get knowledge source with chunks
+                self.test(
+                    "Get knowledge source with chunks",
+                    "GET", f"knowledge/{qna_source_id}", 200,
+                    validate_fn=lambda r: (
+                        "chunks" in r and isinstance(r.get("chunks"), list) and len(r.get("chunks")) == 2,
+                        f"Source has {len(r.get('chunks', []))} chunks"
+                    )
+                )
+                
+                # 32. Test update knowledge source
+                update_kb_data = {
+                    "assistant_id": self.assistant_id,
+                    "title": "FAQ Atualizado",
+                    "content": "P: Qual o horário?\nR: 9h às 18h.",
+                    "type": "qna"
+                }
+                self.test(
+                    "Update knowledge source",
+                    "PUT", f"knowledge/{qna_source_id}", 200,
+                    data=update_kb_data,
+                    validate_fn=lambda r: (
+                        r.get("title") == "FAQ Atualizado" and r.get("chunk_count") == 1,
+                        f"Updated title: {r.get('title')}, chunks: {r.get('chunk_count')}"
+                    )
+                )
+                
+                # 33. Test reindex knowledge source
+                self.test(
+                    "Reindex knowledge source",
+                    "POST", f"knowledge/{qna_source_id}/reindex", 200,
+                    validate_fn=lambda r: (
+                        "chunk_count" in r,
+                        f"Reindexed with {r.get('chunk_count')} chunks"
+                    )
+                )
+                
+                # Clean up QnA source
+                self.test(
+                    "Delete QnA knowledge source",
+                    "DELETE", f"knowledge/{qna_source_id}", 200
+                )
+        
+        # 34. Test knowledge URL with invalid URL (should fail)
+        if self.assistant_id:
+            invalid_url_data = {
+                "assistant_id": self.assistant_id,
+                "url": "not-a-valid-url"
+            }
+            self.test(
+                "Add knowledge from invalid URL (should fail)",
+                "POST", "knowledge/url", 400,
+                data=invalid_url_data,
+                validate_fn=lambda r: (
+                    True,  # Just checking 400 status
+                    "Invalid URL rejected"
+                )
+            )
+        
+        # 35. Test conversation with metadata extraction
+        if self.assistant_id:
+            # Create new conversation for metadata test
+            conv_data = {
+                "channel": "simulator",
+                "contact_name": "Bruno Silva",
+                "contact_phone": "+5511977770000",
+                "assistant_id": self.assistant_id
+            }
+            success, meta_conv = self.test(
+                "Create conversation for metadata test",
+                "POST", "conversations", 200,
+                data=conv_data
+            )
+            
+            if success:
+                meta_conv_id = meta_conv.get("id")
+                self.log("\n⏳ Testing metadata extraction (this may take 10-15 seconds)...", Colors.YELLOW)
+                
+                # Send message that should extract customer profile
+                meta_data = {"text": "oi, sou o Bruno. vocês parcelam?"}
+                success, meta_response = self.test(
+                    "Send message with customer name (should extract profile)",
+                    "POST", f"conversations/{meta_conv_id}/inbound", 200,
+                    data=meta_data,
+                    timeout=30,
+                    validate_fn=lambda r: (
+                        r.get("assistant_message") is not None and
+                        "meta" in r.get("assistant_message", {}),
+                        "AI responded with metadata"
+                    )
+                )
+                
+                if success and meta_response.get("assistant_message"):
+                    ai_msg = meta_response["assistant_message"]
+                    meta = ai_msg.get("meta", {})
+                    
+                    # Check metadata fields
+                    has_intent = "intent" in meta
+                    has_sentiment = "sentiment" in meta
+                    has_confidence = "confidence" in meta
+                    has_kb_used = "kb_used" in meta
+                    has_tags = "tags" in meta
+                    
+                    if all([has_intent, has_sentiment, has_confidence, has_kb_used, has_tags]):
+                        self.log(f"   ✅ Metadata complete: intent={meta.get('intent')}, sentiment={meta.get('sentiment')}, confidence={meta.get('confidence')}, kb_used={meta.get('kb_used')}, tags={meta.get('tags')}", Colors.GREEN)
+                    else:
+                        self.log(f"   ⚠️  Metadata incomplete: intent={has_intent}, sentiment={has_sentiment}, confidence={has_confidence}, kb_used={has_kb_used}, tags={has_tags}", Colors.YELLOW)
+                    
+                    # Check if sources are present
+                    if "sources" in ai_msg and len(ai_msg["sources"]) > 0:
+                        self.log(f"   ✅ Response includes {len(ai_msg['sources'])} knowledge sources", Colors.GREEN)
+                    
+                    # Check latency_ms
+                    if "latency_ms" in ai_msg:
+                        self.log(f"   ✅ Latency tracked: {ai_msg['latency_ms']}ms", Colors.GREEN)
+                
+                # Get conversation to check customer_profile
+                time.sleep(1)
+                success, conv_detail = self.test(
+                    "Get conversation to verify customer profile extraction",
+                    "GET", f"conversations/{meta_conv_id}", 200,
+                    validate_fn=lambda r: (
+                        "customer_profile" in r,
+                        f"Customer profile: {r.get('customer_profile', {})}"
+                    )
+                )
+                
+                if success and conv_detail.get("customer_profile"):
+                    profile = conv_detail["customer_profile"]
+                    if "nome" in profile and "bruno" in profile.get("nome", "").lower():
+                        self.log("   ✅ Customer profile extracted name: Bruno", Colors.GREEN)
+                    else:
+                        self.log(f"   ⚠️  Customer profile may not have extracted name correctly: {profile}", Colors.YELLOW)
+                
+                # 36. Test follow-up message (should use context)
+                self.log("\n⏳ Testing context retention (this may take 10-15 seconds)...", Colors.YELLOW)
+                followup_data = {"text": "e o prazo?"}
+                success, followup_response = self.test(
+                    "Send follow-up message (should use context)",
+                    "POST", f"conversations/{meta_conv_id}/inbound", 200,
+                    data=followup_data,
+                    timeout=30,
+                    validate_fn=lambda r: (
+                        r.get("assistant_message") is not None,
+                        "AI responded to follow-up"
+                    )
+                )
+                
+                if success and followup_response.get("assistant_message"):
+                    followup_text = followup_response["assistant_message"].get("text", "").lower()
+                    # Should mention delivery time (2-4 dias úteis from seed KB)
+                    if "dia" in followup_text or "prazo" in followup_text or "entrega" in followup_text:
+                        self.log("   ✅ AI understood context and responded about delivery time", Colors.GREEN)
+                    else:
+                        self.log(f"   ⚠️  AI response may not have used context correctly: {followup_text[:100]}", Colors.YELLOW)
+                
+                # 37. Test copilot (suggest reply)
+                self.log("\n⏳ Testing copilot suggestion (this may take 10-15 seconds)...", Colors.YELLOW)
+                success, suggest_response = self.test(
+                    "Get copilot suggestion for agent",
+                    "POST", f"conversations/{meta_conv_id}/suggest", 200,
+                    timeout=30,
+                    validate_fn=lambda r: (
+                        "suggestion" in r and "sources" in r and len(r.get("suggestion", "")) > 0,
+                        f"Copilot suggested: {r.get('suggestion', '')[:80]}..."
+                    )
+                )
+                
+                # 38. Test briefing
+                self.log("\n⏳ Testing briefing generation (this may take 10-15 seconds)...", Colors.YELLOW)
+                success, briefing_response = self.test(
+                    "Generate briefing for agent handoff",
+                    "POST", f"conversations/{meta_conv_id}/briefing", 200,
+                    timeout=30,
+                    validate_fn=lambda r: (
+                        all(k in r for k in ["summary", "customer_goal", "sentiment", "open_points", "suggested_next_step"]),
+                        f"Briefing: {r.get('summary', '')[:80]}..., sentiment: {r.get('sentiment')}"
+                    )
+                )
+                
+                # 39. Test notes and tags
+                notes_data = {
+                    "notes": "Cliente interessado em parcelamento",
+                    "tags": ["parcelamento", "interessado"]
+                }
+                self.test(
+                    "Update conversation notes and tags",
+                    "PATCH", f"conversations/{meta_conv_id}/notes", 200,
+                    data=notes_data,
+                    validate_fn=lambda r: (
+                        r.get("notes") == notes_data["notes"] and 
+                        set(r.get("tags", [])) == set(notes_data["tags"]),
+                        f"Notes: {r.get('notes')}, Tags: {r.get('tags')}"
+                    )
+                )
+                
+                # Clean up metadata test conversation
+                self.test(
+                    "Delete metadata test conversation",
+                    "DELETE", f"conversations/{meta_conv_id}", 200
+                )
+        
+        # 40. Test WhatsApp settings
+        wa_settings_data = {
+            "assistant_id": self.assistant_id,
+            "auto_reply": True,
+            "debounce_ms": 3000,
+            "reply_delay_ms": 2000,
+            "split_long_messages": True,
+            "ignore_groups": True
+        }
+        self.test(
+            "Update WhatsApp settings",
+            "PATCH", "whatsapp/settings", 200,
+            data=wa_settings_data,
+            validate_fn=lambda r: (
+                r.get("auto_reply") and 
+                r.get("debounce_ms") == 3000 and
+                r.get("reply_delay_ms") == 2000,
+                f"Settings: auto_reply={r.get('auto_reply')}, debounce={r.get('debounce_ms')}ms, delay={r.get('reply_delay_ms')}ms"
+            )
+        )
+        
+        # 41. Test WhatsApp get settings
+        self.test(
+            "Get WhatsApp settings",
+            "GET", "whatsapp/settings", 200,
+            validate_fn=lambda r: (
+                all(k in r for k in ["auto_reply", "debounce_ms", "reply_delay_ms", "split_long_messages", "ignore_groups"]),
+                f"Settings retrieved: {r}"
+            )
+        )
+        
+        # 42. Test WhatsApp inbound simulation
+        if self.assistant_id:
+            self.log("\n⏳ Testing WhatsApp inbound (this may take 10-15 seconds)...", Colors.YELLOW)
+            wa_inbound_data = {
+                "phone": "+5511977770000",
+                "name": "Maria Silva",
+                "text": "qual o horário de atendimento?"
+            }
+            success, wa_response = self.test(
+                "WhatsApp inbound message (first time - creates conversation)",
+                "POST", "whatsapp/inbound", 200,
+                data=wa_inbound_data,
+                timeout=30,
+                validate_fn=lambda r: (
+                    "reply" in r and "conversation_id" in r and r.get("reply") is not None,
+                    f"Reply: {r.get('reply', '')[:80]}..., conversation_id: {r.get('conversation_id')}"
+                )
+            )
+            
+            if success:
+                wa_conv_id = wa_response.get("conversation_id")
+                
+                # 43. Test WhatsApp inbound reuses conversation
+                wa_inbound_data2 = {
+                    "phone": "+5511977770000",
+                    "name": "Maria Silva",
+                    "text": "e vocês aceitam pix?"
+                }
+                self.log("\n⏳ Testing WhatsApp inbound reuse (this may take 10-15 seconds)...", Colors.YELLOW)
+                success, wa_response2 = self.test(
+                    "WhatsApp inbound message (same phone - reuses conversation)",
+                    "POST", "whatsapp/inbound", 200,
+                    data=wa_inbound_data2,
+                    timeout=30,
+                    validate_fn=lambda r: (
+                        r.get("conversation_id") == wa_conv_id,
+                        f"Reused conversation_id: {r.get('conversation_id')}"
+                    )
+                )
+                
+                # Clean up WhatsApp conversation
+                if wa_conv_id:
+                    self.test(
+                        "Delete WhatsApp test conversation",
+                        "DELETE", f"conversations/{wa_conv_id}", 200
+                    )
+        
+        # 44. Test conversation filters
+        self.test(
+            "List conversations with status filter",
+            "GET", "conversations?status=human", 200,
+            validate_fn=lambda r: (
+                isinstance(r, list),
+                f"Found {len(r)} conversation(s) with status=human"
+            )
+        )
+        
+        self.test(
+            "List conversations with channel filter",
+            "GET", "conversations?channel=simulator", 200,
+            validate_fn=lambda r: (
+                isinstance(r, list),
+                f"Found {len(r)} conversation(s) with channel=simulator"
+            )
+        )
+        
+        # 45. Test dashboard stats with new fields
+        self.test(
+            "Get dashboard statistics (v2 with new fields)",
+            "GET", "dashboard/stats", 200,
+            validate_fn=lambda r: (
+                all(k in r for k in ["assistants", "conversations", "messages", "knowledge_sources", 
+                                     "handoff_rate", "ai_resolution_rate", "avg_latency_ms", "avg_confidence",
+                                     "sentiment", "intents", "timeline", "per_assistant", "recent"]) and
+                isinstance(r.get("sentiment"), dict) and
+                isinstance(r.get("intents"), list) and
+                isinstance(r.get("timeline"), list) and len(r.get("timeline", [])) == 7 and
+                isinstance(r.get("per_assistant"), list),
+                f"Stats: {r.get('assistants')} assistants, {r.get('conversations')} conversations, ai_resolution_rate: {r.get('ai_resolution_rate')}%, avg_latency: {r.get('avg_latency_ms')}ms, avg_confidence: {r.get('avg_confidence')}, sentiment: {r.get('sentiment')}, {len(r.get('intents', []))} intents, {len(r.get('timeline', []))} timeline days, {len(r.get('per_assistant', []))} assistants"
+            )
+        )
+        
+        # 46. Delete knowledge source
         if self.knowledge_source_id:
             self.test(
                 "Delete knowledge source",
                 "DELETE", f"knowledge/{self.knowledge_source_id}", 200,
                 validate_fn=lambda r: (
-                    r.get("ok") == True,
+                    r.get("ok"),
                     "Knowledge source deleted"
                 )
             )
         
-        # 23. Delete conversation
+        # 47. Delete conversation
         if self.conversation_id:
             self.test(
                 "Delete conversation",
                 "DELETE", f"conversations/{self.conversation_id}", 200,
                 validate_fn=lambda r: (
-                    r.get("ok") == True,
+                    r.get("ok"),
                     "Conversation deleted"
                 )
             )
         
-        # 24. Delete test assistant
+        # 48. Delete test assistant
         if test_assistant_id:
             self.test(
                 "Delete assistant",
                 "DELETE", f"assistants/{test_assistant_id}", 200,
                 validate_fn=lambda r: (
-                    r.get("ok") == True,
+                    r.get("ok"),
                     "Assistant deleted"
                 )
             )

@@ -96,6 +96,27 @@
   - `.gitignore`
   - `DELIVERY.md`
 
+### Phase 4 — Assistente nível agente (v2.0.0) ✅ CONCLUÍDA
+**Objetivo**: elevar a qualidade do assistente ao padrão de um agente bem projetado e tornar o console a melhor ferramenta para gerá-lo.
+
+**Núcleo de IA (`ai_core.py`)**
+- Prompt de sistema estruturado: identidade/missão → princípios → playbook → skills → estilo → regras (+anti prompt injection) → handoff → fidelidade → coleta de dados → exemplos few-shot → base → memória → perfil do cliente → checklist silencioso → contrato de saída `[[META:{...}]]`.
+- Histórico como mensagens reais (multi-turn nativo), janela configurável; resumo automático a cada 10 mensagens; perfil do cliente capturado pela IA.
+- Retrieval híbrido BM25 + TF-IDF com normalização PT-BR, sinônimos, expansão de follow-ups, chunk overlap; base inteira quando pequena.
+- Metadados por resposta (intenção, sentimento, confiança, kb_used, tags, perfil, fontes, latência, modelo).
+- Handoff por palavras-chave + decisão da IA; temperatura/max_tokens; retry + fallback de provedor.
+- Utilitários: geração de configuração por IA, copiloto, briefing, resumo.
+
+**Backend**: novos campos e rotas (templates, generate, duplicate, prompt, evaluate, stats, knowledge url/search/reindex/put, suggest, briefing, notes, whatsapp settings, health), dashboard v2, envio de mensagens humanas ao WhatsApp, seed enriquecido + migração leve.
+
+**Frontend**: Editor com templates + Gerar com IA + 10 abas (prompt compilado, avaliação); Playground com inspeção e cenários; KB com URL e Testar busca; Inbox com insights/copiloto/briefing/notas; Dashboard v2; WhatsApp settings; `AIMeta.js`.
+
+**WhatsApp service**: debounce, “digitando…”, split, lidas, `/send`, heartbeat, settings do console.
+
+**Testes**: `test_reports/iteration_3.json` — backend 59/59 (100%), frontend 100% dos fluxos, 0 bugs.
+
+**Docs**: README reescrito, ARCHITECTURE.md, CHANGELOG.md, DELIVERY.md e READMEs atualizados; `.env.example` com `WHATSAPP_SERVICE_URL`/`HEARTBEAT_MS`.
+
 ## 3) Next Actions
 1. **Validação externa (pendente):** rodar `whatsapp-service` em servidor/computador (Node 20+), escanear QR e validar troca real de mensagens com o backend.
 2. (Opcional) Ajustes pós-validação:
@@ -108,3 +129,4 @@
 - **V1 App** ✅: CRUD assistentes + KB (texto+upload) + Playground streaming + Inbox com pause/resume + simulador end-to-end.
 - **WhatsApp real (externo)** 🟡: microserviço Baileys implementado e documentado; falta apenas ativação/validação no ambiente do usuário.
 - **Export** ✅: projeto roda fora do Emergent com `README`, `.env.example`, `docker-compose` e `DELIVERY.md` claros.
+- **v2 (agente)** ✅: prompt estruturado, retrieval híbrido, metadados, memória, geração por IA, templates, avaliação, copiloto, briefing — testados (59/59 backend, frontend 100%).
