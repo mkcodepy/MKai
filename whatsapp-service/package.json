@@ -1,0 +1,19 @@
+{
+  "name": "atendeai-whatsapp-service",
+  "version": "1.0.0",
+  "description": "Microserviço WhatsApp (Baileys) para o AtendeAI Console. Conecta via QR Code (sem API oficial) e faz a ponte HTTP com o backend FastAPI.",
+  "type": "module",
+  "main": "index.js",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0",
+    "@hapi/boom": "^10.0.1",
+    "axios": "^1.7.0",
+    "express": "^4.19.2",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4"
+  }
+}

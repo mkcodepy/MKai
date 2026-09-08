@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - DB_NAME=atendeai
+      - CORS_ORIGINS=*
+      - EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY}
+    depends_on:
+      - mongo
+    ports:
+      - "8001:8001"
+    command: uvicorn server:app --host 0.0.0.0 --port 8001
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8001
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  whatsapp-service:
+    build:
+      context: ./whatsapp-service
+    restart: unless-stopped
+    profiles: ["whatsapp"]
+    environment:
+      - BACKEND_URL=http://backend:8001
+      - WHATSAPP_SERVICE_PORT=3100
+      - AUTH_DIR=/data/auth_info
+    volumes:
+      - wa_auth:/data/auth_info
+    depends_on:
+      - backend
+    ports:
+      - "3100:3100"
+
+volumes:
+  mongo_data:
+  wa_auth:

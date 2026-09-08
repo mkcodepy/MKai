@@ -1,0 +1,26 @@
+# Backend
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+*.pyc
+
+# Frontend
+frontend/.env
+frontend/node_modules/
+frontend/build/
+
+# WhatsApp service
+whatsapp-service/node_modules/
+whatsapp-service/auth_info/
+whatsapp-service/.env
+
+# POC
+poc/samples/
+poc/__pycache__/
+
+# Misc
+*.log
+.DS_Store
+.emergent/
+test_reports/
